@@ -1,0 +1,95 @@
+# =====================================================================
+# CONTRATO DE DATOS — Fundamentales PIT
+# Lo lee productos/fundamentales_pit/calidad.py: cada regla de aquí se
+# revisa contra los datos en cada corrida. Si cambias algo, cambia la versión.
+# =====================================================================
+
+producto: fundamentales_pit
+version: "1.0.0"
+dueno: "Equipo Rojo (Fundamentales) — Bruno Carrada"
+fuente: "DataBursátil /v2/financieros (resultado_trimestre)"
+frecuencia: "trimestral; se regenera después de cada ingesta"
+
+consumidores:
+  - equipo: "Features/ML (Rosa)"
+    uso: "src/ml/features.py add_fundamental_features (merge_asof por available_date)"
+  - equipo: "Trading Agent (Negro)"
+    uso: "herramienta ver_fundamentales (src/agent/fundamentales.py)"
+  - equipo: "Rojo"
+    uso: "build_dashboard.py lee golden"
+
+puertos:
+  golden_parquet: "data/fundamentals/golden/fundamentales_pit.parquet"
+  dividendos_parquet: "data/fundamentals/golden/dividendos_eventos.parquet"
+  sql_server: "golden.fundamentales_pit y golden.dividendos_eventos (sql/04_fundamentales_schema.sql) — pendiente decidir motor con el profe"
+  funcion_pit: "productos.fundamentales_pit.pit.fundamentales_al(fecha, ticker)"
+  herramienta_agente: "ver_fundamentales"
+
+regla_pit:
+  descripcion: >
+    Una fila solo es visible para quien consulta en una fecha >= available_date.
+    available_date = quarter_end + rezago_dias. Ningún consumidor debe unir por
+    quarter_end: siempre por available_date.
+  rezago_dias: 70
+  limitacion: >
+    El rezago es fijo para todas las emisoras, no la fecha real de publicación.
+    Es conservador (no filtra futuro, pero retrasa información): según la corrida
+    del equipo del 2026-10-24, GAPB ya entregaba su trimestre 2026-09-30.
+  cifra_original: >
+    Si un trimestre llega en su propio reporte y también como comparativo del
+    año siguiente, gana el propio (la cifra que se conocía en su momento). El
+    comparativo puede venir reexpresado y se publica un año después.
+
+tablas:
+  fundamentales_pit:
+    descripcion: "Un trimestre de una emisora por fila."
+    llave: [ticker, quarter_end]
+    columnas:
+      ticker:            {tipo: string, nulos: false, descripcion: "Clave interna de la emisora (WALMEX, BIMBOA…)"}
+      quarter_end:       {tipo: date,   nulos: false, descripcion: "Último día del trimestre que reporta"}
+      available_date:    {tipo: date,   nulos: false, descripcion: "Primer día en que se puede usar la fila"}
+      fund_revenue_abs:  {tipo: float,  nulos: true,  descripcion: "Ingresos del trimestre, en pesos (moneda de reporte)"}
+      fund_gross_abs:    {tipo: float,  nulos: true,  descripcion: "Utilidad bruta = ingresos - costo de ventas"}
+      fund_oper_abs:     {tipo: float,  nulos: true,  descripcion: "Utilidad de operación"}
+      fund_net_abs:      {tipo: float,  nulos: true,  descripcion: "Utilidad neta (lo que queda después de impuestos)"}
+      fund_eps:          {tipo: float,  nulos: true,  descripcion: "UPA / EPS: utilidad neta por acción. NaN si la API no la trae"}
+      fund_gross_margin: {tipo: float,  nulos: true,  descripcion: "Utilidad bruta / ingresos"}
+      fund_oper_margin:  {tipo: float,  nulos: true,  descripcion: "Utilidad de operación / ingresos"}
+      fund_net_margin:   {tipo: float,  nulos: true,  descripcion: "Utilidad neta / ingresos"}
+      fund_revenue_yoy:  {tipo: float,  nulos: true,  descripcion: "Ingresos vs mismo trimestre del año anterior (0.10 = +10 %)"}
+      fund_earnings_yoy: {tipo: float,  nulos: true,  descripcion: "Utilidad neta vs mismo trimestre del año anterior"}
+      origen:            {tipo: string, nulos: false, descripcion: "reporte_propio | comparativo | legacy_parquet"}
+      reexpresado:       {tipo: bool,   nulos: false, descripcion: "La cifra cambió en un reporte posterior"}
+      formato:           {tipo: string, nulos: false, descripcion: "corporativo | sin_ingresos_corporativos (bancos, seguros)"}
+      fuente:            {tipo: string, nulos: false, descripcion: "De dónde salió la fila"}
+      version_producto:  {tipo: string, nulos: false, descripcion: "Versión de este contrato con que se generó"}
+      generado_en:       {tipo: date,   nulos: false, descripcion: "Día en que se construyó golden"}
+
+  dividendos_eventos:
+    descripcion: "Un dividendo anunciado por fila. Fuente pendiente: hoy se captura a mano (dividendos_plantilla.csv)."
+    llave: [ticker, fecha_anuncio, fecha_pago]
+    columnas:
+      ticker:           {tipo: string, nulos: false}
+      fecha_anuncio:    {tipo: date,   nulos: false, descripcion: "Cuando la empresa lo anuncia. Es su available_date"}
+      fecha_corte:      {tipo: date,   nulos: false, descripcion: "Quien tenga la acción ese día cobra (fecha ex-derecho)"}
+      fecha_pago:       {tipo: date,   nulos: false, descripcion: "Cuando se deposita"}
+      monto_por_accion: {tipo: float,  nulos: false}
+      moneda:           {tipo: string, nulos: false}
+      fuente:           {tipo: string, nulos: false}
+      available_date:   {tipo: date,   nulos: false, descripcion: "= fecha_anuncio"}
+    reglas: ["fecha_anuncio <= fecha_corte <= fecha_pago"]
+
+slo:
+  emisoras_esperadas: 36            # src/data/bmv_catalog.py BMV_EMISORA_FUNDAMENTALS
+  completitud_min_emisoras: 32      # lo que dio la corrida del 2026-10-24
+  frescura: "golden se regenera a más tardar 7 días después de cada nuevo available_date"
+  rangos_ratios:                    # fuera de rango = probable error de captura
+    # El techo de 1.0 es el único límite imposible de cruzar (utilidad bruta <= ingresos).
+    # Hacia abajo sí puede ser muy negativo: HOTEL 2020-06-30 = -1.42 (pandemia, ingresos casi cero).
+    fund_gross_margin: [-5.0, 1.0]
+    fund_oper_margin: [-5.0, 1.0]
+    fund_net_margin: [-5.0, 5.0]
+
+cambios:
+  compatibles: "agregar columnas al final; agregar emisoras"
+  incompatibles: "renombrar/quitar columnas, cambiar rezago_dias o la llave: subir versión mayor y avisar a Rosa y Negro"

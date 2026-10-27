@@ -2,15 +2,23 @@
 Dashboard de Fundamentales PIT.
 Uso (desde la raiz del repo, con pyarrow instalado):
     python build_dashboard.py
-Lee data/fundamentals.parquet y genera data/dashboard_fundamentales.html
-(abrelo con doble clic en el navegador; necesita internet para cargar Chart.js).
+Lee la capa GOLDEN (data/fundamentals/golden/fundamentales_pit.parquet) y genera
+data/dashboard_fundamentales.html (abrelo con doble clic; necesita internet para Chart.js).
+Si golden no existe, generala antes con:
+    python -m productos.fundamentales_pit.capas todo
 Opciones:  python build_dashboard.py [archivo.parquet|archivo.csv] [salida.html]
 """
 import sys, json
 from pathlib import Path
 import pandas as pd
 
-src = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/fundamentals.parquet")
+GOLDEN = Path("data/fundamentals/golden/fundamentales_pit.parquet")
+if len(sys.argv) > 1:
+    src = Path(sys.argv[1])
+elif GOLDEN.exists():
+    src = GOLDEN
+else:
+    sys.exit("No existe la capa golden. Corre primero: python -m productos.fundamentales_pit.capas todo")
 out = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data/dashboard_fundamentales.html")
 df = pd.read_csv(src) if src.suffix == ".csv" else pd.read_parquet(src)
 df["quarter_end"] = pd.to_datetime(df["quarter_end"])
@@ -131,4 +139,4 @@ draw();
 </script></body></html>"""
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(HTML.replace("__DATA__", json.dumps(DATA, ensure_ascii=False)), encoding="utf-8")
-print(f"Dashboard generado: {out.resolve()}  ({kpi['rows']} filas, {kpi['tickers']} emisoras)")
+print(f"Dashboard generado: {out.resolve()}  ({kpi['rows']} filas, {kpi['tickers']} emisoras) desde {src}")

@@ -1,0 +1,132 @@
+# =====================================================================
+# CAPA SEMÁNTICA — Fundamentales PIT (Equipo Rojo)
+# La lee la herramienta del agente `ver_fundamentales` (src/agent/fundamentales.py)
+# y se la pasa al modelo como contexto. Las consultas de ejemplo se ejecutan
+# en los tests (tests/test_fundamentales_pit.py): si una deja de correr, el
+# test falla.
+# =====================================================================
+
+version: "1.0.0"
+dominio: "Fundamentales PIT"
+equipo_responsable: "Equipo Rojo (Fundamentales)"
+contrato: "productos/fundamentales_pit/contrato.yaml"
+motor: "SQLite en memoria, armado por la herramienta en cada consulta"
+
+regla_principal: >
+  La base que ves ya está cortada a `fecha_consulta`: solo contiene trimestres
+  con available_date <= fecha_consulta y dividendos anunciados hasta esa fecha.
+  No existe ningún dato posterior, así que no hace falta (ni sirve) filtrar por
+  fechas futuras. "El último trimestre" = MAX(quarter_end) de la emisora.
+
+tablas:
+  fundamentales_pit:
+    descripcion: "Un trimestre de una emisora por fila. Llave (ticker, quarter_end)."
+    columnas:
+      ticker: "Clave interna de la emisora: WALMEX, BIMBOA, FEMSAUBD… (sin '.MX')"
+      quarter_end: "Último día del trimestre, texto 'YYYY-MM-DD'"
+      available_date: "Primer día en que el dato ya era público, 'YYYY-MM-DD'"
+      fund_revenue_abs: "Ingresos del trimestre en pesos. Puede ser NULL"
+      fund_net_abs: "Utilidad neta del trimestre en pesos. Puede ser NULL"
+      fund_eps: "Utilidad por acción (UPA). Hoy casi siempre NULL: la fuente no la trae confirmada"
+      fund_gross_margin: "Margen bruto (0.25 = 25 %)"
+      fund_oper_margin: "Margen operativo"
+      fund_net_margin: "Margen neto: lo que queda limpio después de impuestos, por peso vendido"
+      fund_revenue_yoy: "Crecimiento de ingresos vs el MISMO trimestre del año anterior (0.10 = +10 %)"
+      fund_earnings_yoy: "Crecimiento de utilidad neta vs el mismo trimestre del año anterior"
+      origen: "reporte_propio | comparativo | legacy_parquet"
+  dividendos_eventos:
+    descripcion: "Un dividendo anunciado por fila. Puede estar vacía."
+    columnas:
+      ticker: "Clave interna de la emisora"
+      fecha_anuncio: "Cuando se anunció (es cuando se supo)"
+      fecha_corte: "Quien tenga la acción este día cobra"
+      fecha_pago: "Cuando se deposita"
+      monto_por_accion: "Pesos por acción"
+  mapa_tickers:
+    descripcion: "Traduce la clave interna al símbolo de Yahoo Finance que usa el equipo Mercado."
+    columnas:
+      ticker: "Clave interna (la de estas tablas)"
+      ticker_yahoo: "Símbolo de Mercado: WALMEX.MX, TLEVISACPO.MX…"
+
+metricas:
+  margen_neto:
+    pregunta: "De lo que vendí, ¿cuánto me quedé limpio?"
+    formula: "utilidad_neta / ingresos"
+    columna: fund_net_margin
+  margen_bruto:
+    formula: "(ingresos - costo_de_ventas) / ingresos"
+    columna: fund_gross_margin
+  margen_operativo:
+    formula: "utilidad_de_operacion / ingresos"
+    columna: fund_oper_margin
+  crecimiento_utilidad_yoy:
+    pregunta: "¿Gané más que el año pasado en estas mismas fechas?"
+    formula: "utilidad_neta_trimestre / utilidad_neta_mismo_trimestre_año_anterior - 1"
+    columna: fund_earnings_yoy
+    nota: "NULL si no existe el mismo trimestre del año anterior: nunca se compara contra otro trimestre"
+  crecimiento_ingresos_yoy:
+    formula: "ingresos_trimestre / ingresos_mismo_trimestre_año_anterior - 1"
+    columna: fund_revenue_yoy
+  upa:
+    pregunta: "¿Cuánto le tocó de utilidad a cada acción?"
+    formula: "utilidad_neta / numero_de_acciones"
+    columna: fund_eps
+  dividendo:
+    pregunta: "¿Cuánto repartió a sus accionistas y cuándo?"
+    formula: "monto_por_accion, con sus tres fechas"
+    tabla: dividendos_eventos
+
+reglas_de_negocio:
+  - "Un trimestre se usa desde su available_date, nunca desde su quarter_end."
+  - "Un dividendo se conoce en su fecha_anuncio; la fecha_pago es posterior y no se usa para decidir."
+  - "YoY compara contra el mismo trimestre del año anterior. Si está NULL, di que no hay comparativo; no lo calcules contra el trimestre anterior."
+  - "Los márgenes están en proporción: 0.12 significa 12 %."
+  - "Bancos y aseguradoras (GFNORTEO, GFINBURO, GENTERA, Q) no tienen 'ingresos' corporativos: si no aparecen, di que no hay datos, no que ganaron cero."
+  - "Para cruzar con precios del equipo Mercado usa mapa_tickers; NO concatenes '.MX' (falla en TLEVISA, AMXL, VISTA y POSADAS)."
+  - "Si la pregunta pide algo que no está en estas tablas (P/E, precio), di que no lo tienes; no inventes columnas."
+
+consultas_de_ejemplo:
+  - pregunta: "¿Cuánto se quedó limpio WALMEX en su último trimestre publicado?"
+    sql: >
+      SELECT ticker, quarter_end, available_date, fund_net_margin
+      FROM fundamentales_pit
+      WHERE ticker = 'WALMEX'
+      ORDER BY quarter_end DESC LIMIT 1;
+  - pregunta: "¿WALMEX ganó más que el año pasado en el mismo trimestre?"
+    sql: >
+      SELECT ticker, quarter_end, fund_earnings_yoy, fund_revenue_yoy
+      FROM fundamentales_pit
+      WHERE ticker = 'WALMEX' AND fund_earnings_yoy IS NOT NULL
+      ORDER BY quarter_end DESC LIMIT 1;
+  - pregunta: "Las 5 emisoras con mayor margen neto en su último trimestre publicado"
+    sql: >
+      SELECT f.ticker, f.quarter_end, f.fund_net_margin
+      FROM fundamentales_pit f
+      JOIN (SELECT ticker, MAX(quarter_end) AS q FROM fundamentales_pit GROUP BY ticker) u
+        ON u.ticker = f.ticker AND u.q = f.quarter_end
+      WHERE f.fund_net_margin IS NOT NULL
+      ORDER BY f.fund_net_margin DESC LIMIT 5;
+  - pregunta: "Margen neto de BIMBOA en los últimos 8 trimestres"
+    sql: >
+      SELECT quarter_end, fund_net_margin
+      FROM fundamentales_pit
+      WHERE ticker = 'BIMBOA'
+      ORDER BY quarter_end DESC LIMIT 8;
+  - pregunta: "¿Qué emisoras crecieron sus ingresos más de 10 % contra el año anterior en su último trimestre con comparativo?"
+    sql: >
+      SELECT f.ticker, f.quarter_end, f.fund_revenue_yoy
+      FROM fundamentales_pit f
+      JOIN (SELECT ticker, MAX(quarter_end) AS q FROM fundamentales_pit
+            WHERE fund_revenue_yoy IS NOT NULL GROUP BY ticker) u
+        ON u.ticker = f.ticker AND u.q = f.quarter_end
+      WHERE f.fund_revenue_yoy > 0.10
+      ORDER BY f.fund_revenue_yoy DESC;
+  - pregunta: "Dividendos anunciados por WALMEX, con sus fechas"
+    sql: >
+      SELECT ticker, fecha_anuncio, fecha_corte, fecha_pago, monto_por_accion
+      FROM dividendos_eventos
+      WHERE ticker = 'WALMEX'
+      ORDER BY fecha_anuncio DESC;
+  - pregunta: "Símbolo de Yahoo de TLEVISA para cruzar con precios"
+    sql: >
+      SELECT ticker, ticker_yahoo FROM mapa_tickers WHERE ticker = 'TLEVISA';

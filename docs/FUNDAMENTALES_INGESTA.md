@@ -105,3 +105,15 @@ El HTML es una foto de los datos del momento en que se genera. Hay que regenerar
 - [ ] Reemplazar o quitar el snapshot de yfinance en el producto PIT.
 - [ ] Investigar los 4 tickers sin datos y el corte de ALFAA.
 - [ ] Guardar los montos originales además de los ratios.
+
+## 9. Producto de datos (capas, contrato, capa semántica, agente)
+
+Las capas bronze/silver/golden, el contrato de datos, la capa semántica y la
+herramienta del agente (`ver_fundamentales`) viven en
+[`productos/fundamentales_pit/`](../productos/fundamentales_pit/README.md).
+El dashboard ahora lee la capa golden:
+
+```bash
+python -m productos.fundamentales_pit.capas todo
+python build_dashboard.py
+```

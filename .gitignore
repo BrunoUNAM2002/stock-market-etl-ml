@@ -71,3 +71,8 @@ htmlcov/
 temp/
 tmp/
 backfill.pid
+
+# Producto Fundamentales PIT (Equipo Rojo): capas generadas, se regeneran con
+#   python -m productos.fundamentales_pit.capas todo
+data/fundamentals/
+data/dashboard_fundamentales.html

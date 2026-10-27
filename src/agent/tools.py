@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.agent.base import ObservationAgent
 from src.agent.book import Book
+from src.agent.fundamentales import AgenteFundamentales
 from src.agent.woe_obs import explain_ticker
 from src.data.universes import UNIVERSES
 from src.ml.risk_engine import atr_stop
@@ -341,5 +342,6 @@ def build_tools(book: Book) -> dict[str, ObservationAgent]:
         AgenteWoe(),
         AgenteNoticias(),
         AgenteSalida(),
+        AgenteFundamentales(),  # Equipo Rojo: fundamentales PIT
     ]
     return {a.name: a for a in agents}
