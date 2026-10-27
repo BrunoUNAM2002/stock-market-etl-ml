@@ -78,7 +78,7 @@ Los YoY salen vacíos (`NaN`) en los primeros 4 trimestres de cada emisora porqu
 
 1. **4 emisoras fallaron.** No sabemos si la API no las tiene o si el mapeo en `src/data/bmv_catalog.py` es incorrecto. Pendiente de revisar.
 2. **Cobertura desigual.** La mayoría tiene 36 trimestres (2017-03-31 a 2026-06-30). VISTA tiene 32 y empieza en 2018. **ALFAA se corta en 2024-12-31.**
-3. **GAPB trae un trimestre más (2026-09-30)**, con `available_date` esperada el 2026-12-08, posterior a la fecha de la corrida. El `merge_asof` no debería usarlo hasta entonces, pero hay que confirmar por qué la API lo entrega.
+3. **GAPB trae un trimestre más (2026-09-30)**, con `available_date` esperada el 2026-12-09, posterior a la fecha de la corrida. El `merge_asof` no debería usarlo hasta entonces, pero hay que confirmar por qué la API lo entrega.
 4. **Faltan UPA y dividendos**, que la diapositiva del profe incluye en el producto.
 5. **`dividend_yield`, `pe_ratio` y `market_cap` vienen de un snapshot de yfinance**: un valor actual repetido en toda la historia. Eso es look-ahead y rompe el principio PIT.
 6. **El rezago de 70 días es fijo** para todas las emisoras; no es la fecha real de publicación de cada reporte.

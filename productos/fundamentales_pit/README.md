@@ -98,7 +98,7 @@ DROP, ATTACH, PRAGMA…), las consultas que tardan más de 5 s se cortan, y una
 7. **El rezago de 70 días es fijo y conservador.** Según la corrida del equipo
    (no la reproduje: no tengo el token), GAPB entregó su 2026T3 el 2026-10-24,
    24 días después del cierre. No hay fuga (el dato se usa hasta el
-   2026-12-08), pero llega tarde.
+   2026-12-09), pero llega tarde.
 8. **Cruce con Mercado.** Su ticker de Yahoo **no es** `ticker || '.MX'` en 4
    emisoras: TLEVISA → TLEVISACPO.MX, AMXL → AMXB.MX, VISTA → VISTAA.MX,
    POSADAS → POSADASA.MX. La tabla `mapa_tickers` lo resuelve.

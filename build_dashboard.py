@@ -2,10 +2,8 @@
 Dashboard de Fundamentales PIT.
 Uso (desde la raiz del repo, con pyarrow instalado):
     python build_dashboard.py
-Lee la capa GOLDEN (data/fundamentals/golden/fundamentales_pit.parquet) y genera
-data/dashboard_fundamentales.html (abrelo con doble clic; necesita internet para Chart.js).
-Si golden no existe, generala antes con:
-    python -m productos.fundamentales_pit.capas todo
+Lee data/fundamentals.parquet y genera data/dashboard_fundamentales.html
+(abrelo con doble clic en el navegador; necesita internet para cargar Chart.js).
 Opciones:  python build_dashboard.py [archivo.parquet|archivo.csv] [salida.html]
 """
 import sys, json
@@ -31,7 +29,9 @@ r = lambda x: None if pd.isna(x) else round(float(x), 4)
 df = df.sort_values(["ticker", "quarter_end"])
 quarters = sorted(df["quarter_end"].unique())
 qlab = [pd.Timestamp(q).strftime("%Y-%m-%d") for q in quarters]
-med = {k: [r(df[df.quarter_end == q][c].median()) for q in quarters] for k, c in M.items()}
+cnt = df.groupby('quarter_end').ticker.nunique()
+MIN_T = 5  # no graficar la mediana si hay menos de 5 emisoras en ese trimestre
+med = {k: [r(df[df.quarter_end == q][c].median()) if cnt[q] >= MIN_T else None for q in quarters] for k, c in M.items()}
 
 cov = (df.groupby("ticker").agg(n=("quarter_end", "size"), first=("quarter_end", "min"),
        last=("quarter_end", "max")).reset_index().sort_values("n", ascending=False))
@@ -94,15 +94,15 @@ select{padding:5px;border-radius:6px;border:1px solid var(--bd);background:var(-
 <div class="row">
  <div class="c"><h2>Calidad PIT (available_date)</h2><div id="pit"></div></div>
  <div class="c"><h2>Datos faltantes por columna (%)</h2><div class="box"><canvas id="nul"></canvas></div>
- <div class="note">Los NaN en los YoY son normales: los primeros 4 trimestres no tienen año previo.</div></div>
+ <div class="note">Los NaN en los YoY son normales: los primeros 4 trimestres no tienen año previo. Un YoY de 500% o -500% es el tope del recorte [-5, 5], no un valor real.</div></div>
 </div>
 <div class="row">
- <div class="c"><h2>Margenes: mediana de todas las emisoras</h2><div class="box"><canvas id="med"></canvas></div></div>
+ <div class="c"><h2>Margenes: mediana de las emisoras (trimestres con 5+ emisoras)</h2><div class="box"><canvas id="med"></canvas></div></div>
  <div class="c"><h2>Crecimiento YoY: mediana</h2><div class="box"><canvas id="yoy"></canvas></div></div>
 </div>
 <div class="row">
- <div class="c"><h2>Cobertura: trimestres por emisora</h2><div class="box"><canvas id="cov"></canvas></div></div>
- <div class="c"><h2>Margen neto, ultimo trimestre</h2><div class="box"><canvas id="lat"></canvas></div></div>
+ <div class="c"><h2>Cobertura: trimestres por emisora (rojo = menos que lo tipico)</h2><div class="box"><canvas id="cov"></canvas></div></div>
+ <div class="c"><h2>Margen neto, ultimo trimestre disponible de cada emisora</h2><div class="box"><canvas id="lat"></canvas></div></div>
 </div>
 <div class="c" style="margin-bottom:12px"><h2>Explorar una emisora &nbsp;<select id="sel"></select></h2>
  <div class="box" style="height:320px"><canvas id="one"></canvas></div></div>
@@ -124,7 +124,8 @@ $('pit').innerHTML=`<p>Rezago mas comun: <b>${P.lag_mode} dias</b> (${P.pct_lag_
 new Chart($('nul'),{type:'bar',data:{labels:Object.keys(D.nulls).map(s=>s.replace('fund_','')),datasets:[{data:Object.values(D.nulls),backgroundColor:C[0]}]},options:{indexAxis:'y',maintainAspectRatio:false,plugins:{legend:{display:false}}}});
 const ln=(id,keys,names)=>new Chart($(id),{type:'line',data:{labels:D.quarters,datasets:keys.map((k,i)=>({label:names[i],data:D.med[k].map(v=>v==null?null:v*100),borderColor:C[i],backgroundColor:C[i],pointRadius:0,borderWidth:2,tension:.2}))},options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{y:{ticks:{callback:v=>v+'%'}},x:{ticks:{maxTicksLimit:8}}}}});
 ln('med',['gm','om','nm'],['Bruto','Operativo','Neto']);ln('yoy',['ry','ey'],['Ingresos YoY','Utilidad neta YoY']);
-new Chart($('cov'),{type:'bar',data:{labels:D.coverage.map(x=>x.t),datasets:[{data:D.coverage.map(x=>x.n),backgroundColor:D.coverage.map(x=>x.n<Math.max(...D.coverage.map(y=>y.n))-1?C[3]:C[0])}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:90,font:{size:9}}}}}});
+const NT=D.coverage.map(x=>x.n).sort((a,b)=>a-b)[Math.floor(D.coverage.length/2)];
+new Chart($('cov'),{type:'bar',data:{labels:D.coverage.map(x=>x.t),datasets:[{data:D.coverage.map(x=>x.n),backgroundColor:D.coverage.map(x=>x.n<NT?C[3]:C[0])}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:90,font:{size:9}}}}}});
 const L=D.latest.filter(x=>x.nm!=null).sort((a,b)=>b.nm-a.nm);
 new Chart($('lat'),{type:'bar',data:{labels:L.map(x=>x.t),datasets:[{data:L.map(x=>x.nm*100),backgroundColor:L.map(x=>x.nm<0?C[3]:C[1])}]},options:{maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false,maxRotation:90,font:{size:9}}},y:{ticks:{callback:v=>v+'%'}}}}});
 const names=['Margen bruto','Margen operativo','Margen neto','Ingresos YoY','Utilidad YoY'],ks=['gm','om','nm','ry','ey'];
@@ -139,4 +140,4 @@ draw();
 </script></body></html>"""
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(HTML.replace("__DATA__", json.dumps(DATA, ensure_ascii=False)), encoding="utf-8")
-print(f"Dashboard generado: {out.resolve()}  ({kpi['rows']} filas, {kpi['tickers']} emisoras) desde {src}")
+print(f"Dashboard generado: {out.resolve()}  ({kpi['rows']} filas, {kpi['tickers']} emisoras)")

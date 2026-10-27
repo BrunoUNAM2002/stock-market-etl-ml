@@ -99,6 +99,11 @@ def compute_fundamental_features(quarters: dict[pd.Timestamp, dict]) -> pd.DataF
     df = pd.DataFrame(quarters).T.sort_index()
     df.index = pd.to_datetime(df.index)
 
+    # Rellenar trimestres faltantes con NaN para que pct_change(4) compare
+    # contra el mismo trimestre del año anterior (por fecha, no por posición).
+    # Las filas vacías se eliminan al final con dropna.
+    df = df.reindex(pd.date_range(df.index.min(), df.index.max(), freq="QE"))
+
     # Guardar valores absolutos (dinero real)
     df["fund_revenue_abs"] = df["revenue"]
     df["fund_net_abs"] = df["net"]
@@ -110,15 +115,17 @@ def compute_fundamental_features(quarters: dict[pd.Timestamp, dict]) -> pd.DataF
     df["fund_net_margin"]   = df["net"]   / rev
 
     # Crecimiento YoY (mismo trimestre, 4 trimestres atrás)
-    df["fund_revenue_yoy"]  = df["revenue"].pct_change(4)
-    df["fund_earnings_yoy"] = df["net"].pct_change(4)
+    df["fund_revenue_yoy"]  = df["revenue"].pct_change(4, fill_method=None)
+    df["fund_earnings_yoy"] = df["net"].pct_change(4, fill_method=None)
 
     # Disponibilidad pública (anti look-ahead)
     df["available_date"] = df.index + pd.Timedelta(days=PUBLICATION_LAG_DAYS)
 
     # Limpiar infinitos/outliers de ratios (excluyendo los montos absolutos)
     for c in FUNDAMENTAL_COLS:
-        if c not in ["fund_revenue_abs", "fund_net_abs"]:
+        if c in ("fund_revenue_abs", "fund_net_abs"):
+            df[c] = df[c].replace([np.inf, -np.inf], np.nan)
+        else:
             df[c] = df[c].replace([np.inf, -np.inf], np.nan).clip(-5, 5)
 
     return df[FUNDAMENTAL_COLS + ["available_date"]].dropna(how="all", subset=FUNDAMENTAL_COLS)
@@ -141,7 +148,9 @@ def fetch_ticker(ticker: str, token: str,
         return pd.DataFrame()
     # Para minimizar llamadas, pedir 1 periodo por año (cada uno trae año-1 también),
     # pero pedimos los 4 trimestres de años pares para cubrir todo con la mitad de calls.
-    periodos = [f"{q}T_{y}" for q in (1, 2, 3, 4)
-                for y in range(year_start + 1, year_end + 1, 2)]
+    # Años pares (cada llamada trae también el año anterior) + year_end-1 para que
+    # 2025 llegue directo y no dependa de trimestres de 2026 aún no publicados.
+    years = sorted(set(range(year_start + 1, year_end + 1, 2)) | {year_end - 1})
+    periodos = [f"{q}T_{y}" for q in (1, 2, 3, 4) for y in years]
     quarters = fetch_income_statement(emisora, periodos, token)
     return compute_fundamental_features(quarters)
