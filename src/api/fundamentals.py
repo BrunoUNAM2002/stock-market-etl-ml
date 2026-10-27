@@ -30,6 +30,8 @@ from src.data.bmv_catalog import BMV_EMISORA_FUNDAMENTALS as EMISORA_MAP
 
 # Columnas de features fundamentales que produce este módulo
 FUNDAMENTAL_COLS = [
+    "fund_revenue_abs",    # INGRESOS ABSOLUTOS (NUEVO)
+    "fund_net_abs",        # UTILIDAD NETA ABSOLUTA (NUEVO)
     "fund_gross_margin",   # utilidad bruta / ingresos
     "fund_oper_margin",    # utilidad operación / ingresos
     "fund_net_margin",     # utilidad neta / ingresos
@@ -97,6 +99,10 @@ def compute_fundamental_features(quarters: dict[pd.Timestamp, dict]) -> pd.DataF
     df = pd.DataFrame(quarters).T.sort_index()
     df.index = pd.to_datetime(df.index)
 
+    # Guardar valores absolutos (dinero real)
+    df["fund_revenue_abs"] = df["revenue"]
+    df["fund_net_abs"] = df["net"]
+
     # Márgenes
     rev = df["revenue"].replace(0, np.nan)
     df["fund_gross_margin"] = df["gross"] / rev
@@ -110,9 +116,10 @@ def compute_fundamental_features(quarters: dict[pd.Timestamp, dict]) -> pd.DataF
     # Disponibilidad pública (anti look-ahead)
     df["available_date"] = df.index + pd.Timedelta(days=PUBLICATION_LAG_DAYS)
 
-    # Limpiar infinitos/outliers de ratios
+    # Limpiar infinitos/outliers de ratios (excluyendo los montos absolutos)
     for c in FUNDAMENTAL_COLS:
-        df[c] = df[c].replace([np.inf, -np.inf], np.nan).clip(-5, 5)
+        if c not in ["fund_revenue_abs", "fund_net_abs"]:
+            df[c] = df[c].replace([np.inf, -np.inf], np.nan).clip(-5, 5)
 
     return df[FUNDAMENTAL_COLS + ["available_date"]].dropna(how="all", subset=FUNDAMENTAL_COLS)
 
