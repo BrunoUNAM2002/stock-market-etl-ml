@@ -97,12 +97,21 @@ def periodos(year_start: int, year_end: int, estricto: bool = True) -> list[str]
     return [f"{q}T_{y}" for y in anios for q in (1, 2, 3, 4)]
 
 
+def _es_error_de_red(archivo: Path) -> bool:
+    """True si el JSON guardado no es una respuesta de la API (status None: conexión
+    caída, timeout) o no se puede leer. Esos archivos se vuelven a pedir."""
+    try:
+        return json.loads(archivo.read_text(encoding="utf-8")).get("status_code") is None
+    except Exception:
+        return True
+
+
 def bajar_bronze(token: str, tickers: list[str] | None = None, year_start: int = 2017,
                  year_end: int | None = None, estricto: bool = True,
                  financieros: tuple[str, ...] = ("resultado_trimestre",),
                  forzar: bool = False, pausa: float = 0.2, http=None, dest: Path = BRONZE) -> dict:
     """Guarda cada respuesta de la API tal cual. Idempotente: si el archivo ya
-    existe no vuelve a llamar (salvo forzar=True)."""
+    existe no vuelve a llamar (salvo forzar=True), excepto si guardó un error de red."""
     import requests
     http = http or requests
     year_end = year_end or datetime.now().year
@@ -118,7 +127,7 @@ def bajar_bronze(token: str, tickers: list[str] | None = None, year_start: int =
         for fin in financieros:
             for per in periodos(year_start, year_end, estricto):
                 archivo = dest / ticker / fin / f"{per}.json"
-                if archivo.exists() and not forzar:
+                if archivo.exists() and not forzar and not _es_error_de_red(archivo):
                     resumen["omitidas_ya_existian"] += 1
                     continue
                 try:

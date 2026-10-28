@@ -54,8 +54,8 @@ python scripts/run_all_ingests.py --fundamentals --force-fundamentals --skip-aud
 
 | Dato | Valor |
 |---|---|
-| Llamadas a la API | 1,440 (36 emisoras x 40), 4 con error |
-| Filas en silver y golden | **1,336** (la ingesta original dio 1,146 y el parquet del repo traía 946) |
+| Llamadas a la API | 1,440 (36 emisoras x 40); 4 fallaron por red y se repitieron después con éxito |
+| Filas en silver y golden | **1,338** (1,336 en la primera descarga y 2 más al reintentar los errores de red; la ingesta original dio 1,146 y el parquet del repo traía 946) |
 | Emisoras con datos | **32 de 36** |
 | Rango de trimestres | 2016-03-31 a 2026-09-30 (2016 llega como comparativo de 2017) |
 | Origen de las filas | 1,208 de reporte propio, 128 de comparativo |
@@ -64,7 +64,7 @@ python scripts/run_all_ingests.py --fundamentals --force-fundamentals --skip-aud
 | UPA (`fund_eps`) con dato | 100% de las filas |
 | Tests | 24 de 24 en verde |
 
-**Control de calidad:** 13 reglas en OK y 2 en FALLA (ver hallazgos 5 y 6). Las reglas están en `contrato.yaml`.
+**Control de calidad:** 14 reglas en OK y 1 en FALLA (hallazgo 5). La de trimestres consecutivos pasó de FALLA a OK al reintentar bronze (hallazgo 6). Las reglas están en `contrato.yaml`.
 
 **Ingesta original (`run_all_ingests.py --fundamentals`, 27-oct-2026, con `fundamentals.py` corregido):**
 
@@ -84,7 +84,7 @@ python scripts/run_all_ingests.py --fundamentals --force-fundamentals --skip-aud
 3. **ALFAA** antes se cortaba en 2024-12-31 y ahora llega a 2025-09-30 (35 trimestres completos). No tiene 2025-12-31 ni 2026; no sabemos por qué.
 4. **Cuatro emisoras sin estados financieros: GFNORTEO, GENTERA, GFINBURO y Q.** La API responde 400 ("emisora desconocida") y en `/v2/emisoras` su campo `financieros` viene vacío, aunque las emisoras sí existen. No es un error de nombre: la API no los ofrece. Las cuatro son del sector financiero; que esa sea la causa no está comprobado.
 5. **PINFRA 2025-09-30 tiene margen operativo de 284%** (falla la regla de calidad). Viene así de la API: utilidad de operación de 14,195 mdp contra ingresos de 4,993 mdp (en 2024T3 fue 2,821 mdp). No encontramos la causa; el valor puede ser legítimo (por ejemplo, una ganancia extraordinaria), por eso no se corrigió.
-6. **AC aparecía sin 2016-06-30 ni 2017-06-30 en golden** (falla la regla de trimestres consecutivos). Causa verificada en bronze: 4 llamadas de AC (`2T_2017`, `2T_2018`, `4T_2018` y `1T_2019`) terminaron en `ConnectionResetError` (el servidor cerró la conexión); son los únicos 4 archivos con error de red de todo bronze y coinciden con `errores=4`. `bajar_bronze` guardó cada error como si fuera la respuesta y no lo vuelve a pedir porque el archivo ya existe. La ingesta original sí trae esos trimestres. Efecto: 2017-06-30 falta, y 2018-06-30, 2018-12-31 y 2019-03-31 solo llegan como comparativo del año siguiente (posiblemente reexpresado) en lugar de su cifra original. Los bancos no son errores: dieron 400, una respuesta real de la API. Propuesta: volver a pedir los archivos que guardaron un error de red.
+6. **AC aparecía sin 2016-06-30 ni 2017-06-30 en golden** (falla la regla de trimestres consecutivos). Causa verificada en bronze: 4 llamadas de AC (`2T_2017`, `2T_2018`, `4T_2018` y `1T_2019`) terminaron en `ConnectionResetError` (el servidor cerró la conexión); son los únicos 4 archivos con error de red de todo bronze y coinciden con `errores=4`. `bajar_bronze` guardó cada error como si fuera la respuesta y no lo vuelve a pedir porque el archivo ya existe. La ingesta original sí trae esos trimestres. Efecto: 2017-06-30 falta, y 2018-06-30, 2018-12-31 y 2019-03-31 solo llegan como comparativo del año siguiente (posiblemente reexpresado) en lugar de su cifra original. Los bancos no son errores: dieron 400, una respuesta real de la API. **Resuelto:** `bajar_bronze` ahora vuelve a pedir los archivos que guardaron un error de red (`_es_error_de_red` en `capas.py`). Al reintentar: `llamadas=4`, `errores=0`, golden pasó de 1,336 a 1,338 filas, la regla de trimestres consecutivos quedó en OK y los 4 trimestres de AC salen con `origen = reporte_propio`.
 7. **El trimestre 2026-09-30 ya lo reportaron varias emisoras**: el 26-oct solo estaba GAPB y el 27-oct ya hay 20. El rezago fijo de 70 días las deja disponibles hasta el **2026-12-09**, así que esas 20 filas tienen `available_date` futura y el modelo no debe usarlas todavía. El rezago fijo es conservador: no filtra futuro, pero retrasa información que ya era pública.
 8. **La UPA ya viene en la API** (`basicearningslosspershare`) y entra a golden como `fund_eps`. En WALMEX, utilidad neta entre acciones en circulación coincide con `fund_eps` en tres de los cuatro últimos trimestres y difiere 0.01 en el último; solo se revisó esa emisora.
 9. **Dividendos: la API los trae pero sin fecha de anuncio.** En `/v2/emisoras` cada emisora tiene un historial con fecha (parece la de pago), monto y tipo. La fecha ex-derecho y la moneda solo vienen en el dividendo más reciente, que además se repite en el histórico. La fecha de anuncio, que el contrato usa como `available_date`, no existe. Hay que decidir con qué fecha aproximarla; usar la de pago nunca filtra futuro, pero llega tarde. Incluye a las 4 emisoras que no tienen estados financieros.
@@ -93,7 +93,7 @@ python scripts/run_all_ingests.py --fundamentals --force-fundamentals --skip-aud
 ## 6. Pendientes
 
 - [ ] Cargar dividendos desde la API y decidir la fecha de disponibilidad (ver hallazgo 9).
-- [ ] Reintentar los archivos de bronze con error de red (parche propuesto en `capas.py`) y confirmar que AC recupera 2017-06-30 y que la regla de trimestres consecutivos pasa.
+- [x] Reintentar los archivos de bronze con error de red (hecho en `capas.py`; AC recuperado).
 - [ ] Investigar a PINFRA 2025-09-30, a AC y a ALFAA con la fuente original.
 - [ ] Ejecutar `sql/04_fundamentales_schema.sql` en un servidor real y confirmar con el profe dónde vive golden.
 - [ ] Confirmar con el profe qué significa "webfinals".
