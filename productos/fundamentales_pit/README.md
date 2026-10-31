@@ -83,11 +83,15 @@ DROP, ATTACH, PRAGMA…), las consultas que tardan más de 5 s se cortan, y una
    cuando cambió.
 3. **Huecos.** 30 huecos de trimestres; en casi todas las emisoras faltan
    2025T2–T4 porque solo llegan como comparativo de reportes que aún no existían.
+   **Resuelto:** ahora se pide cada año directo (ver `docs/FUNDAMENTALES_INGESTA.md`, hallazgo 2).
 4. **Bancos y aseguradoras.** GFNORTEO, GENTERA, GFINBURO y Q fallan siempre.
    Hipótesis, **sin verificar**: no reportan `revenue`/`grossprofit` (los bancos
    reportan intereses y margen financiero), así que todos sus márgenes salen NaN
    y la emisora se descarta. Silver ya no las descarta: las marca
-   `formato = sin_ingresos_corporativos`. Confirmar con el JSON de bronze.
+   `formato = sin_ingresos_corporativos`. **Verificado con bronze (26-oct):** la
+   hipótesis era falsa. La API responde 400 ("emisora desconocida") y en
+   `/v2/emisoras` su campo `financieros` viene vacío: la API no ofrece sus estados
+   financieros (hallazgo 4 de `docs/FUNDAMENTALES_INGESTA.md`).
 5. **yfinance no es PIT.** `pe_ratio`, `market_cap_log`, `dividend_yield` y
    `profit_margin` (`src/ml/features.py`) son un dato de hoy repetido en toda la
    historia. **No están en este producto.** Le toca al equipo Rosa decidir si
@@ -98,7 +102,7 @@ DROP, ATTACH, PRAGMA…), las consultas que tardan más de 5 s se cortan, y una
 7. **El rezago de 70 días es fijo y conservador.** Según la corrida del equipo
    (no la reproduje: no tengo el token), GAPB entregó su 2026T3 el 2026-10-24,
    24 días después del cierre. No hay fuga (el dato se usa hasta el
-   2026-12-09), pero llega tarde.
+   2026-12-09), pero llega tarde. Al 30-oct ya son 20 emisoras con 2026T3.
 8. **Cruce con Mercado.** Su ticker de Yahoo **no es** `ticker || '.MX'` en 4
    emisoras: TLEVISA → TLEVISACPO.MX, AMXL → AMXB.MX, VISTA → VISTAA.MX,
    POSADAS → POSADASA.MX. La tabla `mapa_tickers` lo resuelve.
@@ -112,14 +116,14 @@ DROP, ATTACH, PRAGMA…), las consultas que tardan más de 5 s se cortan, y una
 |---|---|
 | Capas, contrato, capa semántica, herramienta | **Probado**: 25 tests, y detectan 5 bugs metidos a propósito |
 | Tests del profe con la herramienta registrada | **Probado**: `tests/test_investor_agent.py` sigue pasando (8 de 8) |
-| Golden y dashboard con datos reales | **Probado** con `data/fundamentals.parquet` (946 filas, 28 emisoras) |
-| Bronze contra la API real | **Sin probar**: falta el token. Probado con una API falsa. |
-| UPA desde la API | **Sin verificar** que la API la traiga. Si viene, se toma; si no, queda NaN. |
+| Golden y dashboard con datos reales | **Probado** con la ingesta real por capas: 1,357 filas, 32 de 36 emisoras (30-oct) |
+| Bronze contra la API real | **Probado**: 1,440 llamadas (26-oct) y reintento de trimestres recientes no publicados (30-oct, 67 llamadas) |
+| UPA desde la API | **Verificado**: viene como `basicearningslosspershare`; presente en el 100% de las filas |
 | `sql/04_fundamentales_schema.sql` | Revisión de sintaxis; **no ejecutado** en SQL Server |
 
 ## Pendientes
 
-- [ ] Con token: `capas todo --bronze`, revisar el JSON de un banco y confirmar el hallazgo 4.
+- [x] Con token: `capas todo --bronze`, revisar el JSON de un banco y confirmar el hallazgo 4.
 - [ ] Ver qué otros `financieros` ofrece la API (¿balance, acciones en circulación, dividendos?) y agregarlos a `CAMPOS`.
 - [ ] Fuente de dividendos con fecha de anuncio. Mientras: `dividendos_plantilla.csv` → `data/fundamentals/dividendos_manual.csv`.
 - [ ] Confirmar con el profe dónde vive golden (SQL Server o Postgres) y qué significa «webfinals».
