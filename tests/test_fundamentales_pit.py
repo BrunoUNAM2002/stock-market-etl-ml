@@ -168,6 +168,26 @@ def test_bronze_no_guarda_el_token_y_no_repite_llamadas(tmp_path, monkeypatch):
     assert r2["llamadas"] == 0 and r2["omitidas_ya_existian"] == 4
 
 
+def test_bronze_vuelve_a_pedir_trimestres_recientes_no_publicados(tmp_path):
+    def guardar(periodo, status):
+        archivo = tmp_path / f"{periodo}.json"
+        archivo.write_text(json.dumps({"periodo": periodo, "status_code": status,
+                                       "payload": {}}), encoding="utf-8")
+        return archivo
+
+    hoy = pd.Timestamp(HOY)
+    # 400 de un trimestre reciente o futuro: puede que ya se haya publicado
+    assert capas._reintentar(guardar("3T_2026", 400), "3T_2026", hoy)
+    assert capas._reintentar(guardar("4T_2026", 400), "4T_2026", hoy)
+    assert capas._reintentar(guardar("4T_2025", 400), "4T_2025", hoy)
+    # 400 de un trimestre viejo (bancos que la API no ofrece): no se repite
+    assert not capas._reintentar(guardar("2T_2024", 400), "2T_2024", hoy)
+    # 200 nunca se repite; error de red siempre
+    assert not capas._reintentar(guardar("2T_2026", 200), "2T_2026", hoy)
+    assert capas._reintentar(guardar("1T_2017", None), "1T_2017", hoy)
+    assert capas._fin_de_trimestre("3T_2026") == pd.Timestamp("2026-09-30")
+
+
 def test_modo_estricto_pide_todos_los_anios():
     assert capas.periodos(2023, 2024, estricto=True) == [
         "1T_2023", "2T_2023", "3T_2023", "4T_2023", "1T_2024", "2T_2024", "3T_2024", "4T_2024"]

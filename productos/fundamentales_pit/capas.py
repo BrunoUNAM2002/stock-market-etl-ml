@@ -106,12 +106,40 @@ def _es_error_de_red(archivo: Path) -> bool:
         return True
 
 
+# Una respuesta que no es 200 de un trimestre reciente puede ser "todavía no se
+# publica": la API contesta 400 ("periodo desconocido") hasta que sale el reporte.
+VENTANA_REINTENTO_DIAS = 365
+
+
+def _fin_de_trimestre(periodo: str) -> pd.Timestamp:
+    """'3T_2026' -> 2026-09-30."""
+    q, anio = periodo.split("T_")
+    return pd.Timestamp(year=int(anio), month=int(q) * 3, day=1) + pd.offsets.MonthEnd(0)
+
+
+def _reintentar(archivo: Path, periodo: str, hoy: pd.Timestamp | None = None) -> bool:
+    """True si hay que volver a pedir un archivo de bronze que ya existe:
+    - guardó un error de red (status None) o no se puede leer;
+    - guardó una respuesta que no es 200 de un trimestre que cerró hace menos de
+      VENTANA_REINTENTO_DIAS (o que todavía no cierra): puede que ya se haya publicado.
+    Un 400 de un trimestre viejo (por ejemplo, los bancos que la API no ofrece) se
+    queda como está, para no repetir esas llamadas en cada corrida."""
+    if _es_error_de_red(archivo):
+        return True
+    status = json.loads(archivo.read_text(encoding="utf-8")).get("status_code")
+    if status == 200:
+        return False
+    hoy = pd.Timestamp(hoy) if hoy is not None else pd.Timestamp.now().normalize()
+    return _fin_de_trimestre(periodo) >= hoy - pd.Timedelta(days=VENTANA_REINTENTO_DIAS)
+
+
 def bajar_bronze(token: str, tickers: list[str] | None = None, year_start: int = 2017,
                  year_end: int | None = None, estricto: bool = True,
                  financieros: tuple[str, ...] = ("resultado_trimestre",),
                  forzar: bool = False, pausa: float = 0.2, http=None, dest: Path = BRONZE) -> dict:
     """Guarda cada respuesta de la API tal cual. Idempotente: si el archivo ya
-    existe no vuelve a llamar (salvo forzar=True), excepto si guardó un error de red."""
+    existe no vuelve a llamar (salvo forzar=True), excepto si guardó un error de red
+    o un "periodo desconocido" de un trimestre reciente (ver _reintentar)."""
     import requests
     http = http or requests
     year_end = year_end or datetime.now().year
@@ -127,7 +155,7 @@ def bajar_bronze(token: str, tickers: list[str] | None = None, year_start: int =
         for fin in financieros:
             for per in periodos(year_start, year_end, estricto):
                 archivo = dest / ticker / fin / f"{per}.json"
-                if archivo.exists() and not forzar and not _es_error_de_red(archivo):
+                if archivo.exists() and not forzar and not _reintentar(archivo, per):
                     resumen["omitidas_ya_existian"] += 1
                     continue
                 try:

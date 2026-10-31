@@ -20,7 +20,7 @@ corte y `available_date` el día en que ya se puede ver.
 python -m productos.fundamentales_pit.capas todo            # silver + golden + calidad
 python -m productos.fundamentales_pit.capas todo --bronze   # además baja la API (necesita token)
 python build_dashboard.py                                   # dashboard desde golden
-python -m pytest tests/test_fundamentales_pit.py -q         # 24 tests
+python -m pytest tests/test_fundamentales_pit.py -q         # 25 tests
 ```
 
 Sin token, `todo` construye silver desde `data/fundamentals.parquet`, que solo
@@ -110,7 +110,7 @@ DROP, ATTACH, PRAGMA…), las consultas que tardan más de 5 s se cortan, y una
 
 | Pieza | Estado |
 |---|---|
-| Capas, contrato, capa semántica, herramienta | **Probado**: 24 tests, y detectan 5 bugs metidos a propósito |
+| Capas, contrato, capa semántica, herramienta | **Probado**: 25 tests, y detectan 5 bugs metidos a propósito |
 | Tests del profe con la herramienta registrada | **Probado**: `tests/test_investor_agent.py` sigue pasando (8 de 8) |
 | Golden y dashboard con datos reales | **Probado** con `data/fundamentals.parquet` (946 filas, 28 emisoras) |
 | Bronze contra la API real | **Sin probar**: falta el token. Probado con una API falsa. |
