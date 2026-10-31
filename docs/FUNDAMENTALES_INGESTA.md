@@ -89,12 +89,16 @@ python scripts/run_all_ingests.py --fundamentals --force-fundamentals --skip-aud
 8. **La UPA ya viene en la API** (`basicearningslosspershare`) y entra a golden como `fund_eps`. En WALMEX, utilidad neta entre acciones en circulación coincide con `fund_eps` en tres de los cuatro últimos trimestres y difiere 0.01 en el último; solo se revisó esa emisora.
 9. **Dividendos: la API los trae pero sin fecha de anuncio.** En `/v2/emisoras` cada emisora tiene un historial con fecha (parece la de pago), monto y tipo. La fecha ex-derecho y la moneda solo vienen en el dividendo más reciente, que además se repite en el histórico. La fecha de anuncio, que el contrato usa como `available_date`, no existe. Hay que decidir con qué fecha aproximarla; usar la de pago nunca filtra futuro, pero llega tarde. Incluye a las 4 emisoras que no tienen estados financieros.
 10. **yfinance no es PIT.** `dividend_yield`, `pe_ratio` y `market_cap` en `src/ml/features.py` son un valor de hoy repetido en toda la historia. No están en este producto.
+11. **Margen bruto de 100% en BOLSAA, FUNO11, GAPB y VOLARA.** Pasa en todos sus trimestres (42 o 43 cada una). En bronze las cuatro reportan `costofsales` = 0, así que `grossprofit` = `revenue` (por ejemplo, GAPB 2T-2026: ingresos y utilidad bruta de 11,289.7 mdp). No es un error del cálculo: estas emisoras no separan un costo de ventas y registran sus gastos en otros renglones (administración, venta, otros). Para ellas `fund_gross_margin` no es comparable con el de otras emisoras; usar `fund_oper_margin`. No se corrigió porque viene así de la fuente.
+12. **VESTA 2T-2026 tiene margen neto de 129.7% y YoY de utilidad neta de 267%.** Las cuentas cuadran con bronze (cifras en millones): utilidad de operación 61.0 + ingresos financieros 55.2 − gastos financieros 17.5 ≈ utilidad antes de impuestos 98.8; con impuesto de −3.1 (suma en vez de restar) la utilidad neta queda en 101.8, por encima de los ingresos (78.5). El YoY compara contra 2T-2025, cuando la utilidad neta fue 27.7 (impuestos de 26.8 e ingresos financieros de 14.5). No se corrigió.
+13. **Moneda de los montos (no comprobado).** Los montos de VESTA son mucho menores que los del resto (ingresos de 78.5 millones en 2T-2026 contra 250,947.8 mdp de WALMEX); suponemos que VESTA reporta en dólares. La API no trae un campo de moneda en `resultado_trimestre`, así que no se puede confirmar con los datos. Márgenes y YoY no se ven afectados (son proporciones), pero comparar `fund_revenue_abs` o `fund_net_abs` entre emisoras puede mezclar pesos con dólares. No se revisó qué otras emisoras reportan en otra moneda.
 
 ## 6. Pendientes
 
 - [ ] Cargar dividendos desde la API y decidir la fecha de disponibilidad (ver hallazgo 9).
 - [x] Reintentar los archivos de bronze con error de red (hecho en `capas.py`; AC recuperado).
 - [ ] Investigar a PINFRA 2025-09-30, a AC y a ALFAA con la fuente original.
+- [ ] Confirmar la moneda de reporte de VESTA y revisar si otras emisoras reportan en dólares (ver hallazgo 13).
 - [ ] Ejecutar `sql/04_fundamentales_schema.sql` en un servidor real y confirmar con el profe dónde vive golden.
 - [ ] Confirmar con el profe qué significa "webfinals".
 - [ ] Revisar con el equipo dueño de `src/agent/tools.py` el registro de la herramienta `ver_fundamentales`.
